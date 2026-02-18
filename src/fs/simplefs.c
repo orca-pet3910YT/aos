@@ -13,7 +13,7 @@
 // Block size: 512 bytes (matches ATA sector size)
 // Max file size: ~258MB (12 direct + 1-level indirect + 2-level indirect)
 // Max files: Limited by inode count
-// Note: This filesystem may seem absurd, but it is what i deemed best.
+// Note: This filesystem may seem absurd, but it is what I deemed best.
 
 #include <fs/simplefs.h>
 #include <fs/vfs.h>

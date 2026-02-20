@@ -7,7 +7,7 @@
  * === AOS HEADER END ===
  */
 
-/**
+/*
  * AKM Virtual Machine Implementation
  * 
  * Stack-based bytecode interpreter for JavaScript-compiled kernel modules.
@@ -92,7 +92,7 @@ void akm_vm_cleanup_registry(akm_vm_t* vm) {
 
 //                          HELPER FUNCTIONS
 
-/**
+/*
  * Read 32-bit little-endian value from code - with null check
  */
 static uint32_t read_u32(akm_vm_t* vm) {
@@ -111,7 +111,7 @@ static uint32_t read_u32(akm_vm_t* vm) {
     return val;
 }
 
-/**
+/*
  * Read 8-bit value from code - with null check
  */
 static uint8_t read_u8(akm_vm_t* vm) {
@@ -159,7 +159,7 @@ static int32_t peek(akm_vm_t* vm) {
 
 //                          API DISPATCH
 
-/**
+/*
  * Execute an API call - comprehensive implementation with safety checks
  */
 static int dispatch_api(akm_vm_t* vm, uint8_t api_id, uint8_t argc) {

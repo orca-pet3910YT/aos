@@ -14,7 +14,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#define APM_REPO_BASE_URL "https://repo.aosproject.workers.dev/main"
+#define APM_REPO_BASE_URL "http://repo.aosproject.workers.dev/main" // http cuz https not working as of now.
 #define APM_LIST_FILE "/sys/apm/kmodule.list.source"
 #define APM_MODULE_DIR "/sys/apm/modules"
 #define APM_AUTOLOAD_FILE "/sys/apm/kmodule.autoload"
@@ -82,6 +82,9 @@ int apm_set_module_autoload(const char* module_name, bool enabled);
 
 // List modules configured for startup auto-load
 int apm_list_autoload_modules(void);
+
+// Disable all startup auto-load modules (used by panic recovery rollback)
+int apm_disable_all_autoload(const char* reason);
 
 // Load modules configured for startup auto-load
 int apm_load_startup_modules(void);

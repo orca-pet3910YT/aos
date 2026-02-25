@@ -53,11 +53,10 @@ static void free_cluster_chain(fat32_data_t* fs_data, uint32_t first_cluster);
 static uint32_t cluster_to_sector(fat32_data_t* fs_data, uint32_t cluster);
 static void parse_short_name(const uint8_t* short_name, char* out_name);
 static void create_short_name(const char* long_name, uint8_t* short_name);
-static uint8_t lfn_checksum(const uint8_t* short_name);
 static void parse_lfn_entry(fat32_lfn_entry_t* lfn, char* name_part);
 static int find_dir_entry(fat32_data_t* fs_data, uint32_t dir_cluster, const char* name, 
                          fat32_dir_entry_t* entry, uint32_t* entry_sector, uint32_t* entry_offset);
-static vnode_t* create_vnode_from_entry(fat32_data_t* fs_data, fat32_dir_entry_t* entry, 
+static vnode_t* create_vnode_from_entry(fat32_dir_entry_t* entry,
                                        const char* name, filesystem_t* fs, uint32_t parent_cluster);
 static int strcasecmp_simple(const char* s1, const char* s2);
 static int add_dir_entry(fat32_data_t* fs_data, uint32_t dir_cluster, const char* name, 
@@ -326,14 +325,6 @@ static void create_short_name(const char* long_name, uint8_t* short_name) {
             short_name[8 + i] = (uint8_t)c;
         }
     }
-}
-
-static uint8_t lfn_checksum(const uint8_t* short_name) {
-    uint8_t sum = 0;
-    for (int i = 0; i < 11; i++) {
-        sum = ((sum & 1) << 7) + (sum >> 1) + short_name[i];
-    }
-    return sum;
 }
 
 static void parse_lfn_entry(fat32_lfn_entry_t* lfn, char* name_part) {
@@ -633,7 +624,7 @@ static int find_dir_entry(fat32_data_t* fs_data, uint32_t dir_cluster, const cha
     return -1; // Not found
 }
 
-static vnode_t* create_vnode_from_entry(fat32_data_t* fs_data, fat32_dir_entry_t* entry,
+static vnode_t* create_vnode_from_entry(fat32_dir_entry_t* entry,
                                        const char* name, filesystem_t* fs, uint32_t parent_cluster) {
     vnode_t* vnode = (vnode_t*)kmalloc(sizeof(vnode_t));
     if (!vnode) {
@@ -683,6 +674,7 @@ static vnode_t* create_vnode_from_entry(fat32_data_t* fs_data, fat32_dir_entry_t
 
 
 static int fat32_vnode_open(vnode_t* node, uint32_t flags) {
+    (void)flags;
     if (!node) {
         return VFS_ERR_INVALID;
     }
@@ -811,10 +803,7 @@ static int fat32_vnode_write(vnode_t* node, const void* buffer, uint32_t size, u
     
     // Skip to the cluster containing offset
     uint32_t cluster_skip = offset / cluster_size;
-    uint32_t prev_cluster = 0;
-    
     for (uint32_t i = 0; i < cluster_skip; i++) {
-        prev_cluster = cluster;
         uint32_t next = get_next_cluster(fs_data, cluster);
         
         if (next >= FAT32_CLUSTER_RESERVED) {
@@ -861,7 +850,6 @@ static int fat32_vnode_write(vnode_t* node, const void* buffer, uint32_t size, u
         cluster_offset = 0;
         
         if (bytes_written < size) {
-            prev_cluster = cluster;
             uint32_t next = get_next_cluster(fs_data, cluster);
             
             if (next >= FAT32_CLUSTER_RESERVED) {
@@ -912,13 +900,14 @@ static vnode_t* fat32_vnode_finddir(vnode_t* node, const char* name) {
     
     fat32_dir_entry_t entry;
     if (find_dir_entry(fs_data, file_data->first_cluster, name, &entry, NULL, NULL) == 0) {
-        return create_vnode_from_entry(fs_data, &entry, name, node->fs, file_data->first_cluster);
+        return create_vnode_from_entry(&entry, name, node->fs, file_data->first_cluster);
     }
     
     return NULL;
 }
 
 static vnode_t* fat32_vnode_create(vnode_t* parent, const char* name, uint32_t flags) {
+    (void)flags;
     if (!parent || !name || !parent->fs || !parent->fs->fs_data) {
         return NULL;
     }
@@ -961,7 +950,7 @@ static vnode_t* fat32_vnode_create(vnode_t* parent, const char* name, uint32_t f
     // Sync to disk immediately to ensure persistence
     fat32_sync(fs_data);
     
-    return create_vnode_from_entry(fs_data, &new_entry, name, parent->fs, parent_data->first_cluster);
+    return create_vnode_from_entry(&new_entry, name, parent->fs, parent_data->first_cluster);
 }
 
 static int fat32_vnode_unlink(vnode_t* parent, const char* name) {
@@ -1188,8 +1177,32 @@ static int fat32_vnode_stat(vnode_t* node, stat_t* stat) {
 
 // Filesystem Operations
 
+static uint32_t fat32_parse_source_lba(const char* source) {
+    if (!source || !*source) {
+        return 0;
+    }
+
+    const char* lba_pos = strstr(source, "lba=");
+    if (!lba_pos) {
+        lba_pos = strstr(source, "lba:");
+    }
+    if (!lba_pos) {
+        return 0;
+    }
+
+    lba_pos += 4;
+    uint32_t lba = 0;
+    while (*lba_pos >= '0' && *lba_pos <= '9') {
+        lba = (lba * 10U) + (uint32_t)(*lba_pos - '0');
+        lba_pos++;
+    }
+
+    return lba;
+}
+
 
 static int fat32_mount(filesystem_t* fs, const char* source, uint32_t flags) {
+    (void)flags;
     if (!fs) {
         return VFS_ERR_INVALID;
     }
@@ -1204,7 +1217,7 @@ static int fat32_mount(filesystem_t* fs, const char* source, uint32_t flags) {
     }
     
     memset(fs_data, 0, sizeof(fat32_data_t));
-    fs_data->start_lba = 0; // Assume partition starts at LBA 0 for now
+    fs_data->start_lba = fat32_parse_source_lba(source);
     
     // Read boot sector
     if (read_sector(fs_data, 0, &fs_data->boot_sector) != 0) {
@@ -1213,11 +1226,18 @@ static int fat32_mount(filesystem_t* fs, const char* source, uint32_t flags) {
         return VFS_ERR_IO;
     }
     
-    // Verify FAT32 signature
+    // Verify FAT32 signature (fallback to backup boot sector at +6 if needed).
     if (fs_data->boot_sector.boot_sector_signature != FAT32_SIGNATURE_55AA) {
-        serial_puts("FAT32: Invalid boot sector signature\n");
-        kfree(fs_data);
-        return VFS_ERR_INVALID;
+        fat32_boot_sector_t backup_boot;
+        if (read_sector(fs_data, 6, &backup_boot) == 0 &&
+            backup_boot.boot_sector_signature == FAT32_SIGNATURE_55AA) {
+            memcpy(&fs_data->boot_sector, &backup_boot, sizeof(fat32_boot_sector_t));
+            serial_puts("FAT32: Primary boot sector invalid, recovered from backup boot sector\n");
+        } else {
+            serial_puts("FAT32: Invalid boot sector signature\n");
+            kfree(fs_data);
+            return VFS_ERR_INVALID;
+        }
     }
     
     // Verify it's FAT32
@@ -1226,10 +1246,38 @@ static int fat32_mount(filesystem_t* fs, const char* source, uint32_t flags) {
         kfree(fs_data);
         return VFS_ERR_INVALID;
     }
+
+    // Validate key BPB fields before using them in arithmetic.
+    // This prevents malformed sectors from causing runtime faults.
+    if (memcmp(fs_data->boot_sector.fs_type, "FAT32   ", 8) != 0) {
+        serial_puts("FAT32: Invalid filesystem type field\n");
+        kfree(fs_data);
+        return VFS_ERR_INVALID;
+    }
+
+    if (fs_data->boot_sector.bytes_per_sector != FAT32_SECTOR_SIZE) {
+        serial_puts("FAT32: Unsupported bytes-per-sector value\n");
+        kfree(fs_data);
+        return VFS_ERR_INVALID;
+    }
+
+    uint8_t sectors_per_cluster = fs_data->boot_sector.sectors_per_cluster;
+    if (sectors_per_cluster == 0 ||
+        (sectors_per_cluster & (sectors_per_cluster - 1)) != 0) {
+        serial_puts("FAT32: Invalid sectors-per-cluster\n");
+        kfree(fs_data);
+        return VFS_ERR_INVALID;
+    }
+
+    if (fs_data->boot_sector.num_fats == 0 || fs_data->boot_sector.fat_size_32 == 0) {
+        serial_puts("FAT32: Invalid FAT geometry\n");
+        kfree(fs_data);
+        return VFS_ERR_INVALID;
+    }
     
     // Calculate filesystem parameters
     fs_data->bytes_per_cluster = fs_data->boot_sector.bytes_per_sector * 
-                                  fs_data->boot_sector.sectors_per_cluster;
+                                  sectors_per_cluster;
     fs_data->fat_start_sector = fs_data->boot_sector.reserved_sectors;
     fs_data->data_start_sector = fs_data->fat_start_sector + 
                                  (fs_data->boot_sector.num_fats * fs_data->boot_sector.fat_size_32);
@@ -1237,8 +1285,19 @@ static int fat32_mount(filesystem_t* fs, const char* source, uint32_t flags) {
     uint32_t total_sectors = (fs_data->boot_sector.total_sectors_16 != 0) ?
                              fs_data->boot_sector.total_sectors_16 :
                              fs_data->boot_sector.total_sectors_32;
+    if (total_sectors == 0 || total_sectors <= fs_data->data_start_sector) {
+        serial_puts("FAT32: Invalid total sector count\n");
+        kfree(fs_data);
+        return VFS_ERR_INVALID;
+    }
+
     uint32_t data_sectors = total_sectors - fs_data->data_start_sector;
-    fs_data->total_clusters = data_sectors / fs_data->boot_sector.sectors_per_cluster;
+    fs_data->total_clusters = data_sectors / sectors_per_cluster;
+    if (fs_data->total_clusters == 0) {
+        serial_puts("FAT32: No data clusters available\n");
+        kfree(fs_data);
+        return VFS_ERR_INVALID;
+    }
     
     serial_puts("FAT32: Bytes per cluster: ");
     char buf[32];
@@ -1263,6 +1322,11 @@ static int fat32_mount(filesystem_t* fs, const char* source, uint32_t flags) {
     
     // Load FAT into memory (cache first FAT)
     uint32_t fat_size_bytes = fs_data->boot_sector.fat_size_32 * fs_data->boot_sector.bytes_per_sector;
+    if (fat_size_bytes == 0) {
+        serial_puts("FAT32: Invalid FAT size in bytes\n");
+        kfree(fs_data);
+        return VFS_ERR_INVALID;
+    }
     fs_data->fat = (uint32_t*)kmalloc(fat_size_bytes);
     if (!fs_data->fat) {
         serial_puts("FAT32: Failed to allocate FAT cache\n");
@@ -1464,8 +1528,8 @@ int fat32_format(uint32_t start_lba, uint32_t num_sectors, const char* volume_la
     boot.jump_boot[1] = 0x58;
     boot.jump_boot[2] = 0x90;
     
-    // OEM name
-    memcpy(boot.oem_name, "aOS FAT32", 9);
+    // OEM name (exactly 8 bytes)
+    memcpy(boot.oem_name, "aOSFAT32", 8);
     
     // BPB
     boot.bytes_per_sector = 512;
@@ -1478,7 +1542,8 @@ int fat32_format(uint32_t start_lba, uint32_t num_sectors, const char* volume_la
     boot.fat_size_16 = 0;       // Use FAT32 field
     boot.sectors_per_track = 63;
     boot.num_heads = 255;
-    boot.hidden_sectors = 0;
+    // When formatting a partitioned disk, this should reflect partition start.
+    boot.hidden_sectors = start_lba;
     boot.total_sectors_32 = num_sectors;
     
     // FAT32 extended BPB
@@ -1514,6 +1579,32 @@ int fat32_format(uint32_t start_lba, uint32_t num_sectors, const char* volume_la
     if (ata_write_sectors(start_lba + 6, 1, (const uint8_t*)&boot) != 0) {
         serial_puts("FAT32: Failed to write backup boot sector\n");
         return -1;
+    }
+
+    // Verify boot sector signatures were persisted correctly.
+    {
+        uint8_t verify_sector[FAT32_SECTOR_SIZE];
+        uint16_t sig;
+
+        if (ata_read_sectors(start_lba, 1, verify_sector) != 0) {
+            serial_puts("FAT32: Failed to verify primary boot sector\n");
+            return -1;
+        }
+        sig = (uint16_t)verify_sector[510] | ((uint16_t)verify_sector[511] << 8);
+        if (sig != FAT32_SIGNATURE_55AA) {
+            serial_puts("FAT32: Primary boot signature verification failed\n");
+            return -1;
+        }
+
+        if (ata_read_sectors(start_lba + 6, 1, verify_sector) != 0) {
+            serial_puts("FAT32: Failed to verify backup boot sector\n");
+            return -1;
+        }
+        sig = (uint16_t)verify_sector[510] | ((uint16_t)verify_sector[511] << 8);
+        if (sig != FAT32_SIGNATURE_55AA) {
+            serial_puts("FAT32: Backup boot signature verification failed\n");
+            return -1;
+        }
     }
     
     serial_puts("FAT32: Creating FSInfo sector...\n");

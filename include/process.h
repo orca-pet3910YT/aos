@@ -62,11 +62,28 @@ typedef int pid_t;
 
 // CPU context saved during context switch
 typedef struct {
+#if defined(ARCH_X86_64)
+    /*
+     * Keep legacy field names for compatibility with existing scheduler code,
+     * but store full-width register values in long mode.
+     */
+    uint64_t eax, ebx, ecx, edx;
+    uint64_t esi, edi, ebp, esp;
+    uint64_t eip;
+    uint64_t eflags;
+    uint64_t cr3;           // Page table root physical address
+    /*
+     * Callee-saved registers in SysV x86_64 ABI that must survive
+     * function calls and therefore context switches.
+     */
+    uint64_t r12, r13, r14, r15;
+#else
     uint32_t eax, ebx, ecx, edx;
     uint32_t esi, edi, ebp, esp;
     uint32_t eip;
     uint32_t eflags;
     uint32_t cr3;           // Page directory physical address
+#endif
     uint16_t cs, ds, es, fs, gs, ss;
 } cpu_context_t;
 
@@ -86,8 +103,8 @@ typedef struct process {
     cpu_context_t context;          // Saved CPU state
     address_space_t* address_space; // Virtual memory space
     
-    uint32_t kernel_stack;          // Kernel stack pointer
-    uint32_t user_stack;            // User stack pointer
+    uintptr_t kernel_stack;         // Kernel stack pointer
+    uintptr_t user_stack;           // User stack pointer
     
     int file_descriptors[MAX_OPEN_FILES];  // Open file descriptors
     uint32_t privilege_level;       // 0=kernel, 3=user
@@ -114,6 +131,7 @@ void init_process_manager(void);
 
 // Process lifecycle
 pid_t process_create(const char* name, void (*entry_point)(void), int priority);
+pid_t process_create_kernel_thread(const char* name, void (*entry_point)(void), int priority);
 pid_t process_register_kernel_task(const char* name, task_type_t type, int priority);
 int process_finish_kernel_task(pid_t pid, int status);
 int process_mark_task_state(pid_t pid, process_state_t state);

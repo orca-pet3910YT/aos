@@ -14,51 +14,63 @@ global switch_context
 ;   rdi = old_context
 ;   rsi = new_context
 ;
-; cpu_context_t layout (32-bit legacy fields):
-;   +0 eax, +4 ebx, +8 ecx, +12 edx, +16 esi, +20 edi,
-;   +24 ebp, +28 esp, +32 eip, +36 eflags, +40 cr3
+; cpu_context_t layout on x86_64 (legacy names, 64-bit values):
+;   +0 eax, +8 ebx, +16 ecx, +24 edx, +32 esi, +40 edi,
+;   +48 ebp, +56 esp, +64 eip, +72 eflags, +80 cr3,
+;   +88 r12, +96 r13, +104 r14, +112 r15
 
 switch_context:
     mov r8, rdi
     mov r9, rsi
 
-    ; Save old context (low 32-bit values; kernel currently uses low memory addresses)
-    mov [r8 + 0], eax
-    mov [r8 + 4], ebx
-    mov [r8 + 8], ecx
-    mov [r8 + 12], edx
-    mov [r8 + 16], esi
-    mov [r8 + 20], edi
-    mov [r8 + 24], ebp
-    mov [r8 + 28], esp
+    ; Save old context
+    mov [r8 + 0], rax
+    mov [r8 + 8], rbx
+    mov [r8 + 16], rcx
+    mov [r8 + 24], rdx
+    mov [r8 + 32], rsi
+    mov [r8 + 40], rdi
+    mov [r8 + 48], rbp
+    lea rax, [rsp + 8]
+    mov [r8 + 56], rax
 
-    mov eax, [rsp]           ; return RIP for resumed task
-    mov [r8 + 32], eax
+    mov rax, [rsp]           ; return RIP for resumed task
+    mov [r8 + 64], rax
 
     pushfq
     pop rax
-    mov [r8 + 36], eax
+    mov [r8 + 72], rax
 
     mov rax, cr3
-    mov [r8 + 40], eax
+    mov [r8 + 80], rax
+
+    mov [r8 + 88], r12
+    mov [r8 + 96], r13
+    mov [r8 + 104], r14
+    mov [r8 + 112], r15
 
     ; Restore CR3 first
-    mov eax, [r9 + 40]
+    mov rax, [r9 + 80]
     mov cr3, rax
 
-    ; Restore general state
-    mov ebx, [r9 + 4]
-    mov ecx, [r9 + 8]
-    mov edx, [r9 + 12]
-    mov esi, [r9 + 16]
-    mov edi, [r9 + 20]
-    mov ebp, [r9 + 24]
-    mov esp, [r9 + 28]
+    mov r12, [r9 + 88]
+    mov r13, [r9 + 96]
+    mov r14, [r9 + 104]
+    mov r15, [r9 + 112]
 
-    mov eax, [r9 + 36]
+    ; Restore general state
+    mov rbx, [r9 + 8]
+    mov rcx, [r9 + 16]
+    mov rdx, [r9 + 24]
+    mov rsi, [r9 + 32]
+    mov rdi, [r9 + 40]
+    mov rbp, [r9 + 48]
+    mov rsp, [r9 + 56]
+
+    mov rax, [r9 + 72]
     push rax
     popfq
 
-    mov eax, [r9 + 0]
-    mov edx, [r9 + 32]
+    mov rax, [r9 + 0]
+    mov rdx, [r9 + 64]
     jmp rdx

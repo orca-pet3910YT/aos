@@ -37,7 +37,7 @@ static void editor_putc_at(uint32_t row, uint32_t col, char c) {
     if (row < 25 && col < 80) {
         uint16_t* buffer = vga_get_buffer();
         uint32_t pos = row * 80 + col;
-        buffer[pos] = ((0x0F) << 8) | c;
+        buffer[pos] = (0x0F << 8) | c;
     }
 }
 
@@ -412,14 +412,6 @@ void editor_display(editor_context_t* ctx) {
             col++;
         }
         
-        // Draw cursor if it's at the end of this line (after last character)
-        if (cursor_visible && line_count == cursor_screen_row && col == cursor_screen_col) {
-            uint16_t* buffer = vga_get_buffer();
-            uint32_t pos = line_count * 80 + col;
-            // Inverted space character to show cursor position
-            buffer[pos] = ((0x70) << 8) | ' ';
-        }
-        
         // Clear rest of line
         while (col < EDITOR_DISPLAY_WIDTH) {
             editor_putc_at(line_count, col, ' ');
@@ -435,6 +427,14 @@ void editor_display(editor_context_t* ctx) {
             editor_putc_at(line_count, col, ' ');
         }
         line_count++;
+    }
+
+    // Draw cursor if it's at the end of this line (after last character)
+    if (cursor_visible && ctx->cursor_line == cursor_screen_row && ctx->lines[ctx->cursor_line].length == ctx->cursor_col) {
+        uint16_t* buffer = vga_get_buffer();
+        uint32_t pos = ctx->cursor_line * 80 + ctx->cursor_col;
+        // Inverted space character to show cursor position
+        buffer[pos] = (0x70 << 8) | ' ';
     }
     
     // Draw status bar

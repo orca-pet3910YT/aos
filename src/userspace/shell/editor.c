@@ -550,6 +550,17 @@ void editor_handle_input(editor_context_t* ctx) {
         ctx->mode = EDITOR_NORMAL;
         return;
     }
+
+    // Ctrl+H - Help
+    if (c == 'h' && keyboard_is_ctrl_pressed()) { // Ctrl+H
+        uint16_t *vga_buffer = vga_get_buffer();
+        char *help_string = "Ctrl+X: exit, Ctrl+S: save, Ctrl+H: this message, arrow keys: move cursor";
+        uint32_t help_row = 23;
+        for (uint32_t col = 0; col < strlen(help_string); col++) {
+            vga_buffer[help_row * 80 + col] = ((0x70) << 8) | help_string[col];
+        }
+        return;
+    }
     
     // Regular character input
     if (c >= 32 && c <= 126) {

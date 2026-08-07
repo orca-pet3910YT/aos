@@ -248,9 +248,18 @@ static void cmd_gfxdemo(const char* args) {
     int x_detected = 0;
     
     while (!x_detected) {
-        scancode = keyboard_get_scancode();
+	    /*
+	     * i know what you're thinking; scancode_to_char() indeed introduces some overhead.
+	     * you're right, it does. however, if you don't like the 300 additional CPU cycles
+	     * it takes to get the character from scancode_to_char, what are you doing?
+	     * it would make more sense to optimize if this was additional 300 cycles per pixel
+	     * or screen refresh, as that would be significantly more noticeable. however, the
+	     * user likely doesn't use an auto-clicker on their keyboard to press a key 300
+	     * times per second. additionally, the CPU clock is usually in gigahertz nowadays.
+	     */
+        scancode = scancode_to_char(keyboard_get_scancode());
         
-        if (scancode == 0x2D) {  // 'x' key scancode
+        if (scancode == 'x') {  // check for x press
             x_detected = 1;
             serial_puts("'x' key detected, returning to text mode...\n");
         }
@@ -261,9 +270,7 @@ static void cmd_gfxdemo(const char* args) {
         // Force re-init VGA subsystem
         vga_init();
         
-        // Triple clear to be absolutely sure
-        vga_clear();
-        vga_clear();
+	// clear the screen
         vga_clear();
         
         // Set position to top of screen
@@ -468,8 +475,8 @@ static void cmd_bouncy(const char* args) {
         last_draw_y = draw_y;
         
         // Check for 'q' key
-        uint8_t scan = keyboard_get_scancode();
-        if (scan == 0x10) {  // 'q' key
+        uint8_t scan = scancode_to_char(keyboard_get_scancode());
+        if (scan == 'q') { // is the pressed key q?
             running = 0;
         }
         
@@ -565,8 +572,8 @@ static void cmd_starfield(const char* args) {
         }
         
         // Check for 'q' key
-        uint8_t scan = keyboard_get_scancode();
-        if (scan == 0x10) {
+        uint8_t scan = scancode_to_char(keyboard_get_scancode());
+        if (scan == 'q') {
             running = 0;
         }
         
@@ -630,8 +637,8 @@ static void cmd_plasma(const char* args) {
         }
         
         // Check for 'q' key
-        uint8_t scan = keyboard_get_scancode();
-        if (scan == 0x10) {
+        uint8_t scan = scancode_to_char(keyboard_get_scancode());
+        if (scan == 'q') {
             running = 0;
         }
         
